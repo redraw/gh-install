@@ -1,9 +1,7 @@
 #!/bin/bash
-# usage: gh install user/repo
 set -eo pipefail
 
 repo=$1
-
 if [ -z $repo ]; then
     echo "usage: gh install user/repo"
     exit 1
@@ -21,7 +19,8 @@ select filename in $(gh api "repos/$1/releases/latest" -q ".assets[].name"); do 
 echo "Downloading... $filename"
 gh release download --repo "$1" --pattern "$filename" --dir "$tmp"
 
-# extract
+# extract()
+# taken from: https://unix.stackexchange.com/a/168/245465 
 extract () {
     for arg in $@ ; do
         if [ -f $arg ] ; then
@@ -37,8 +36,7 @@ extract () {
                 *.zip)      unzip $arg        ;;
                 *.Z)        uncompress $arg   ;;
                 *.rar)      rar x $arg        ;;  # 'rar' must to be installed
-                *.jar)      jar -xvf $arg     ;;  # 'jdk' must to be installed
-                *)          echo "'$arg' cannot be extracted via extract()" ;;
+                *)          echo "'$arg' cannot be extracted";;
             esac
         else
             echo "'$arg' is not a valid file"
@@ -46,18 +44,20 @@ extract () {
     done
 }
 
-pushd $tmp >/dev/null
-extract $filename
-PS3="Select binary: "
-select bin in $(find * -type f -not -path "*$filename"); do break; done
-popd >/dev/null
+(
+    cd $tmp
+    extract $filename
 
-# install
-basename=$(basename $bin)
-read -p "Choose a name (empty to leave: $basename): " name
-target="$binpath/${name:-$basename}"
-mv "$tmp/$bin" "$target"
-chmod +x "$target"
+    PS3="Select binary: "
+    select bin in $(find * -type f -not -path "*$filename"); do break; done
 
-echo "Success!"
-echo "Saved in: $target"
+    # install
+    basename=$(basename "$bin")
+    read -p "Choose a name (empty to leave: $basename): " name
+    target="$binpath/${name:-$basename}"
+    mv "$bin" "$target"
+    chmod +x "$target"
+
+    echo "Success!"
+    echo "Saved in: $target"
+)
