@@ -1,6 +1,6 @@
-# gh-install
+# gh install
 
-This `gh` extension let's you install latest releases from Github repos. 
+This [gh](https://github.com/cli/cli) extension lets you install latest releases from GitHub repos. 
 
 [![asciicast](https://asciinema.org/a/ukI9k3PN6rSD1NxtvfKU1PbXP.svg)](https://asciinema.org/a/ukI9k3PN6rSD1NxtvfKU1PbXP)
 
