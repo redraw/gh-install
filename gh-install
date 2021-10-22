@@ -1,0 +1,63 @@
+#!/bin/bash
+# usage: gh install user/repo
+set -eo pipefail
+
+repo=$1
+
+if [ -z $repo ]; then
+    echo "usage: gh install user/repo"
+    exit 1
+fi
+
+tmp="/tmp/.gh-install"
+binpath="${GH_BINPATH:-$HOME/.local/bin}"
+
+rm -rf $tmp
+mkdir -p $tmp
+
+PS3="Select download file: "
+select filename in $(gh api "repos/$1/releases/latest" -q ".assets[].name"); do break; done
+
+echo "Downloading... $filename"
+gh release download --repo "$1" --pattern "$filename" --dir "$tmp"
+
+# extract
+extract () {
+    for arg in $@ ; do
+        if [ -f $arg ] ; then
+            case $arg in
+                *.tar.bz2)  tar xjf $arg      ;;
+                *.tar.gz)   tar xzf $arg      ;;
+                *.tar.xz)   tar xzf $arg      ;;
+                *.bz2)      bunzip2 $arg      ;;
+                *.gz)       gunzip $arg       ;;
+                *.tar)      tar xf $arg       ;;
+                *.tbz2)     tar xjf $arg      ;;
+                *.tgz)      tar xzf $arg      ;;
+                *.zip)      unzip $arg        ;;
+                *.Z)        uncompress $arg   ;;
+                *.rar)      rar x $arg        ;;  # 'rar' must to be installed
+                *.jar)      jar -xvf $arg     ;;  # 'jdk' must to be installed
+                *)          echo "'$arg' cannot be extracted via extract()" ;;
+            esac
+        else
+            echo "'$arg' is not a valid file"
+        fi
+    done
+}
+
+pushd $tmp >/dev/null
+extract $filename
+PS3="Select binary: "
+select bin in $(find * -type f -not -path "*$filename"); do break; done
+popd >/dev/null
+
+# install
+basename=$(basename $bin)
+read -p "Choose a name (empty to leave: $basename): " name
+target="$binpath/${name:-$basename}"
+mv "$tmp/$bin" "$target"
+chmod +x "$target"
+
+echo "Success!"
+echo "Saved in: $target"
