@@ -2,7 +2,13 @@
 
 This [gh](https://github.com/cli/cli) extension lets you install latest releases from GitHub repos. 
 
-[![asciicast](https://asciinema.org/a/ukI9k3PN6rSD1NxtvfKU1PbXP.svg)](https://asciinema.org/a/ukI9k3PN6rSD1NxtvfKU1PbXP)
+[![asciicast](https://asciinema.org/a/445772.svg)](https://asciinema.org/a/445772)
+
+## Install
+
+```bash
+gh extension install redraw/gh-install
+```
 
 ## Usage
 
@@ -10,10 +16,4 @@ This [gh](https://github.com/cli/cli) extension lets you install latest releases
 gh install <user>/<repo>
 ```
 
-## Installation
-
-```bash
-gh extension install redraw/gh-install
-```
-
-The binary path is retrieved from `$GH_BINPATH` and defaults to `$HOME/.local/bin`.
+The binary path can be set with `$GH_BINPATH` env variable, and defaults to `$HOME/.local/bin`.
