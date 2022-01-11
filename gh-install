@@ -1,23 +1,27 @@
 #!/bin/bash
 set -eo pipefail
 
-repo=$1
-if [ -z $repo ]; then
+TMP="/tmp/.gh-install"
+BINPATH="${GH_BINPATH:-$HOME/.local/bin}"
+REPO=$1
+
+if [ -z $REPO ]; then
     echo "usage: gh install user/repo"
     exit 1
 fi
 
-tmp="/tmp/.gh-install"
-binpath="${GH_BINPATH:-$HOME/.local/bin}"
 
-rm -rf $tmp
-mkdir -p $tmp
+rm -rf $TMP
+mkdir -p $TMP
 
-PS3="Select download file: "
-select filename in $(gh api "repos/$1/releases/latest" -q ".assets[].name"); do break; done
+PS3="[?] Select version: "
+select tag in $(gh api "repos/$REPO/releases" -q ".[].tag_name"); do break; done
 
-echo "Downloading... $filename"
-gh release download --repo "$1" --pattern "$filename" --dir "$tmp"
+PS3="[?] Select file: "
+select filename in $(gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'); do break; done
+
+echo "[*] Downloading... $filename"
+gh release download $tag --repo "$REPO" --pattern "$filename" --dir "$TMP"
 
 # extract()
 # taken from: https://unix.stackexchange.com/a/168/245465 
@@ -45,16 +49,17 @@ extract () {
 }
 
 (
-    cd $tmp
+    cd $TMP
+    echo "[*] Extracting..."
     extract $filename
 
-    PS3="Select binary: "
+    PS3="[?] Select binary: "
     select bin in $(find * -type f -not -path "*$filename"); do break; done
 
     # install
     basename=$(basename "$bin")
-    read -p "Choose a name (empty to leave: $basename): " name
-    target="$binpath/${name:-$basename}"
+    read -p "[?] Choose a name (empty to leave: $basename): " name
+    target="$BINPATH/${name:-$basename}"
     mv "$bin" "$target"
     chmod +x "$target"
 
