@@ -14,10 +14,10 @@ fi
 rm -rf $TMP
 mkdir -p $TMP
 
-PS3="[?] Select version: "
+PS3="> Select version: "
 select tag in $(gh api "repos/$REPO/releases" -q ".[].tag_name"); do break; done
 
-PS3="[?] Select file: "
+PS3="> Select file: "
 select filename in $(gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'); do break; done
 
 echo "[*] Downloading... $filename"
@@ -40,25 +40,29 @@ extract () {
                 *.zip)      unzip $arg        ;;
                 *.Z)        uncompress $arg   ;;
                 *.rar)      rar x $arg        ;;  # 'rar' must to be installed
-                *)          echo "'$arg' cannot be extracted";;
+                *)          echo "'$arg' cannot be extracted, assuming it's binary" && return 1;;
             esac
         else
-            echo "'$arg' is not a valid file"
+            echo "'$arg' is not a valid file" && return 1
         fi
     done
+    return 0
 }
 
 (
     cd $TMP
     echo "[*] Extracting..."
-    extract $filename
 
-    PS3="[?] Select binary: "
-    select bin in $(find * -type f -not -path "*$filename"); do break; done
+    if extract $filename; then
+        PS3="> Select binary: "
+        select bin in $(find * -type f -not -path "*$filename"); do break; done
+    else
+        bin=$filename
+    fi
 
     # install
     basename=$(basename "$bin")
-    read -p "[?] Choose a name (empty to leave: $basename): " name
+    read -p "> Choose a name (empty to leave: $basename): " name
     target="$BINPATH/${name:-$basename}"
     mv "$bin" "$target"
     chmod +x "$target"
