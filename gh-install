@@ -52,17 +52,24 @@ trap cleanup EXIT
 
 PS3="> Select version: "
 tag=$(choose `gh api "repos/$REPO/releases" -q ".[].tag_name"`)
-echo "version -> $tag"
+echo "[version] $tag"
 
 PS3="> Select file: "
 filename=$(choose `gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'`)
-echo "filename -> $filename"
+echo "[filename] $filename"
 
 echo "[*] Downloading... $filename"
 gh release download $tag --repo "$REPO" --pattern "$filename" --dir "$TMP"
 
 (
     cd $TMP
+
+    if [[ $filename == *.deb ]]; then
+        echo "[*] Installing debian package..."
+        sudo apt install ./$filename
+        exit 0
+    fi
+
     echo "[*] Extracting..."
 
     if extract $filename; then
