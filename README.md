@@ -2,7 +2,7 @@
 
 This [gh](https://github.com/cli/cli) extension lets you install latest releases from GitHub repos. 
 
-[![asciicast](https://asciinema.org/a/445772.svg)](https://asciinema.org/a/445772)
+[![asciicast](https://asciinema.org/a/7XniSZ3FyskFz3iZvhyCcwe1c.svg)](https://asciinema.org/a/7XniSZ3FyskFz3iZvhyCcwe1c)
 
 ## Install
 
