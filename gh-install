@@ -10,21 +10,15 @@ if [ -z $REPO ]; then
     exit 1
 fi
 
+choose () {
+    if command -v fzf 2>&1> /dev/null; then
+        echo $(echo $@ | xargs -n 1 | fzf --height 10 --prompt "$PS3" -1)
+    else
+        select opt in $@; do break; done
+        echo $opt
+    fi
+}
 
-rm -rf $TMP
-mkdir -p $TMP
-
-PS3="> Select version: "
-select tag in $(gh api "repos/$REPO/releases" -q ".[].tag_name"); do break; done
-
-PS3="> Select file: "
-select filename in $(gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'); do break; done
-
-echo "[*] Downloading... $filename"
-gh release download $tag --repo "$REPO" --pattern "$filename" --dir "$TMP"
-
-# extract()
-# taken from: https://unix.stackexchange.com/a/168/245465 
 extract () {
     for arg in $@ ; do
         if [ -f $arg ] ; then
@@ -49,13 +43,38 @@ extract () {
     return 0
 }
 
+cleanup () {
+    rm -rf $TMP
+    mkdir -p $TMP
+}
+
+trap cleanup EXIT
+
+PS3="> Select version: "
+tag=$(choose `gh api "repos/$REPO/releases" -q ".[].tag_name"`)
+echo "[version] $tag"
+
+PS3="> Select file: "
+filename=$(choose `gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'`)
+echo "[filename] $filename"
+
+echo "[*] Downloading... $filename"
+gh release download $tag --repo "$REPO" --pattern "$filename" --dir "$TMP"
+
 (
     cd $TMP
+
+    if [[ $filename == *.deb ]]; then
+        echo "[*] Installing debian package..."
+        sudo apt install ./$filename
+        exit 0
+    fi
+
     echo "[*] Extracting..."
 
     if extract $filename; then
         PS3="> Select binary: "
-        select bin in $(find * -type f -not -path "*$filename"); do break; done
+        bin=$(choose `find * -type f -not -path "*$filename"`)
     else
         bin=$filename
     fi
@@ -63,6 +82,7 @@ extract () {
     # install
     basename=$(basename "$bin")
     read -p "> Choose a name (empty to leave: $basename): " name
+    mkdir -p "$BINPATH"
     target="$BINPATH/${name:-$basename}"
     mv "$bin" "$target"
     chmod +x "$target"
