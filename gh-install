@@ -12,7 +12,7 @@ fi
 
 choose () {
     if command -v fzf 2>&1> /dev/null; then
-        echo $(echo $@ | xargs -n 1 | fzf --height 10 --prompt "$PS3" -1)
+        echo $@ | xargs -n 1 | fzf --height 10 --prompt "$PS3" -1
     else
         select opt in $@; do break; done
         echo $opt
@@ -45,7 +45,6 @@ extract () {
 
 cleanup () {
     rm -rf $TMP
-    mkdir -p $TMP
 }
 
 trap cleanup EXIT

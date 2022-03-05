@@ -16,4 +16,7 @@ gh extension install redraw/gh-install
 gh install <user>/<repo>
 ```
 
-Binaries are installed in `$HOME/.local/bin` folder, this can be changed by setting `$GH_BINPATH` env variable.
+Optional: For fuzzy search support, install [fzf](https://github.com/junegunn/fzf)
+
+## Environment variables
+- `$GH_BINPATH` path to install binaries, defaults to `$HOME/.local/bin`
