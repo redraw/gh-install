@@ -20,3 +20,23 @@ jobs:
 
       - name: Install extension locally
         run: gh extension install .
+
+      - name: Test basic auto mode
+        run: |
+          gh install orf/gping --auto
+          gping --version
+
+      - name: Test with pattern filter
+        run: |
+          gh install BurntSushi/ripgrep --auto --pattern '*.tar.gz$'
+          rg --version
+
+      - name: Test with custom binary name
+        run: |
+          gh install sharkdp/fd --auto --name fdfind
+          fdfind --version
+
+      - name: Test with specific version
+        run: |
+          gh install cli/cli --auto --version v2.40.0
+          gh version | grep "2.40.0"
