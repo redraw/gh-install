@@ -10,9 +10,60 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        tool:
+          # Basic tools with simple release naming
+          - repo: orf/gping
+            verify: gping --version
+            desc: "simple tarball"
+
+          # Tools requiring pattern filter (multiple variants like musl/gnu)
+          - repo: BurntSushi/ripgrep
+            pattern: "*.tar.gz$"
+            verify: rg --version
+            desc: "pattern filter"
+
+          # Custom binary name (fd installs as 'fd' but we rename)
+          - repo: sharkdp/fd
+            name: fdfind
+            verify: fdfind --version
+            desc: "custom name"
+
+          # Specific version pinning
+          - repo: sharkdp/bat
+            version: v0.24.0
+            verify: bat --version | grep "0.24.0"
+            desc: "pinned version"
+
+          # Tools with different archive structures
+          - repo: junegunn/fzf
+            verify: fzf --version
+            desc: "simple binary"
+
+          # Tools with .zip releases (common on some projects)
+          - repo: astral-sh/uv
+            verify: uv --version
+            desc: "uv package manager"
+
+          # Go-based tools (often have unique naming)
+          - repo: jesseduffield/lazygit
+            verify: lazygit --version
+            desc: "go binary"
+
+          # Rust-based tools
+          - repo: sharkdp/hyperfine
+            verify: hyperfine --version
+            desc: "rust binary"
+
+          # Tools with nested directory structure in archive
+          - repo: dandavison/delta
+            verify: delta --version
+            desc: "nested archive"
+
     runs-on: ${{ matrix.os }}
+    name: "${{ matrix.tool.desc }} (${{ matrix.os }})"
 
     env:
       GH_TOKEN: ${{ github.token }}
@@ -21,25 +72,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install GitHub CLI (for act)
+        if: ${{ env.ACT }}
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+
       - name: Install extension locally
         run: gh extension install .
 
-      - name: Test basic auto mode
+      - name: "Test: ${{ matrix.tool.desc }}"
         run: |
-          gh install orf/gping --auto
-          gping --version
+          args="--auto"
+          [ -n "${{ matrix.tool.pattern }}" ] && args="$args --pattern '${{ matrix.tool.pattern }}'"
+          [ -n "${{ matrix.tool.name }}" ] && args="$args --name ${{ matrix.tool.name }}"
+          [ -n "${{ matrix.tool.version }}" ] && args="$args --version ${{ matrix.tool.version }}"
 
-      - name: Test with pattern filter
-        run: |
-          gh install BurntSushi/ripgrep --auto --pattern '*.tar.gz$'
-          rg --version
+          echo "Running: gh install ${{ matrix.tool.repo }} $args"
+          eval "gh install ${{ matrix.tool.repo }} $args"
 
-      - name: Test with custom binary name
-        run: |
-          gh install sharkdp/fd --auto --name fdfind
-          fdfind --version
-
-      - name: Test with specific version
-        run: |
-          gh install cli/cli --auto --version v2.40.0
-          gh version | grep "2.40.0"
+      - name: Verify installation
+        run: ${{ matrix.tool.verify }}
