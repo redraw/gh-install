@@ -4,6 +4,26 @@ set -eo pipefail
 TMP="/tmp/.gh-install"
 BINPATH="${GH_BINPATH:-$HOME/.local/bin}"
 
+# Colors (only if terminal supports it)
+if [ -t 1 ] && [ -z "$NO_COLOR" ]; then
+    O='\033[38;5;208m'  # orange (actions)
+    D='\033[90m'         # dim/grey (auto-detected)
+    B='\033[1m'          # bold
+    G='\033[32m'         # green
+    M='\033[35m'         # magenta
+    R='\033[0m'          # reset
+else
+    O='' D='' B='' G='' M='' R=''
+fi
+
+log() {
+    echo -e "${D}$1${R}"
+}
+
+action() {
+    echo -e "${O}$1${R}"
+}
+
 # Flags
 AUTO_MODE=false
 FLAG_VERSION=""
@@ -97,10 +117,16 @@ if [ -z "$REPO" ]; then
     exit 1
 fi
 
+# Normalize repo: strip GitHub URL prefix if present
+REPO="${REPO#https://github.com/}"
+REPO="${REPO#http://github.com/}"
+REPO="${REPO#github.com/}"
+REPO="${REPO%.git}"
+
 # Auto-enable auto mode if not a tty (piped/scripted)
 if [ ! -t 0 ] && [ "$AUTO_MODE" = false ]; then
     AUTO_MODE=true
-    echo "[auto] Non-interactive mode enabled (stdin is not a tty)"
+    log "[auto-detected mode] non-interactive (stdin is not a tty)"
 fi
 
 choose() {
@@ -159,16 +185,16 @@ if [ "$AUTO_MODE" = true ]; then
     fi
 
     detect_platform
-    echo "[platform] $OS_NAME $ARCH_NAME"
+    log "[auto-detected platform] ${B}$OS_NAME $ARCH_NAME${R}"
 fi
 
 # Step 1: Select version
 if [ "$AUTO_MODE" = true ]; then
-    tag=$(auto_select_version "$REPO" "$FLAG_VERSION")
+    tag=$(auto_select_version)
     if [ -n "$FLAG_VERSION" ]; then
-        echo "[version] $tag (from --version flag)"
+        log "[using version] ${B}$tag${R} ${M}(from --version)${R}"
     else
-        echo "[version] $tag (latest)"
+        log "[auto-detected version] ${B}$tag${R} ${G}(latest)${R}"
     fi
 else
     PS3="> Select version: "
@@ -181,16 +207,16 @@ all_assets=$(gh api "repos/$REPO/releases" -q ".[] | select(.tag_name == \"$tag\
 
 if [ "$AUTO_MODE" = true ]; then
     # Auto-detect based on platform (with optional pattern to narrow down)
-    filename=$(auto_select_asset "$all_assets" "$FLAG_PATTERN")
+    filename=$(auto_select_asset "$all_assets")
 
     if [ $? -ne 0 ]; then
         exit 1
     fi
 
     if [ -n "$FLAG_PATTERN" ]; then
-        echo "[filename] $filename (auto + pattern: $FLAG_PATTERN)"
+        log "[auto-detected asset] ${B}$filename${R} ${M}(pattern: $FLAG_PATTERN)${R}"
     else
-        echo "[filename] $filename (auto-detected)"
+        log "[auto-detected asset] ${B}$filename${R}"
     fi
 elif [ -n "$FLAG_PATTERN" ]; then
     # Non-auto mode with explicit pattern
@@ -214,7 +240,7 @@ else
 fi
 
 # Step 3: Download
-echo "[*] Downloading... $filename"
+action "downloading ${B}$filename${R}"
 gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
 
 (
@@ -222,12 +248,12 @@ gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
 
     # Handle debian packages
     if [[ "$filename" == *.deb ]]; then
-        echo "[*] Installing debian package..."
+        action "installing debian package ${B}$filename${R}"
         sudo apt install "./$filename"
         exit 0
     fi
 
-    echo "[*] Extracting..."
+    action "extracting..."
 
     # Step 4: Extract and select binary
     if extract "$filename"; then
@@ -236,7 +262,7 @@ gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
             if [ $? -ne 0 ]; then
                 exit 1
             fi
-            echo "[binary] $bin (auto-detected)"
+            log "[auto-detected binary] ${B}$bin${R}"
         else
             PS3="> Select binary: "
             bin=$(choose $(find . -type f -not -path "*$filename"))
@@ -249,11 +275,11 @@ gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
     basename=$(basename "$bin")
 
     if [ "$AUTO_MODE" = true ]; then
-        name=$(auto_select_name "$bin" "$FLAG_NAME")
+        name=$(auto_select_name "$bin")
         if [ -n "$FLAG_NAME" ]; then
-            echo "[name] $name (from --name flag)"
+            log "[using name] ${B}$name${R} ${M}(from --name)${R}"
         else
-            echo "[name] $name (auto-detected)"
+            log "[auto-detected name] ${B}$name${R}"
         fi
     else
         read -p "> Choose a name (empty to leave: $basename): " name
@@ -264,6 +290,5 @@ gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
     mv "$bin" "$target"
     chmod +x "$target"
 
-    echo "Success!"
-    echo "Saved in: $target"
+    echo -e "${G}installed ${B}$target${R}"
 )

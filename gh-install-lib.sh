@@ -1,6 +1,9 @@
 #!/bin/bash
 # gh-install auto-mode helper library
 # Sourced by gh-install when --auto flag is used
+#
+# Expects these globals from main script:
+#   REPO, FLAG_VERSION, FLAG_PATTERN, FLAG_NAME
 
 # Platform detection variables
 OS_NAME=""
@@ -58,19 +61,17 @@ detect_platform() {
 }
 
 auto_select_version() {
-    local repo="$1"
-    local version_override="$2"
-
-    if [ -n "$version_override" ]; then
-        echo "$version_override"
+    # Uses globals: REPO, FLAG_VERSION
+    if [ -n "$FLAG_VERSION" ]; then
+        echo "$FLAG_VERSION"
     else
-        gh api "repos/$repo/releases/latest" -q ".tag_name"
+        gh api "repos/$REPO/releases/latest" -q ".tag_name"
     fi
 }
 
 auto_select_asset() {
-    local assets="$1"  # Newline-separated list
-    local pattern="$2"  # Optional pattern to narrow down
+    # Uses globals: FLAG_PATTERN
+    local assets="$1"  # Newline-separated list (must be passed)
 
     # Filter by OS first
     local os_matches=$(echo "$assets" | grep -iE "$OS_ALIASES" || true)
@@ -93,13 +94,13 @@ auto_select_asset() {
     fi
 
     # If pattern provided, narrow down further
-    if [ -n "$pattern" ]; then
+    if [ -n "$FLAG_PATTERN" ]; then
         # Convert glob pattern to grep pattern (* -> .*, ? -> .)
-        local grep_pattern=$(echo "$pattern" | sed 's/\*/.*/g' | sed 's/?/./g')
+        local grep_pattern=$(echo "$FLAG_PATTERN" | sed 's/\*/.*/g' | sed 's/?/./g')
         local narrowed=$(echo "$matched" | grep -E "$grep_pattern" || true)
 
         if [ -z "$narrowed" ]; then
-            echo "Error: No platform matches satisfy pattern: $pattern" >&2
+            echo "Error: No platform matches satisfy pattern: $FLAG_PATTERN" >&2
             echo "Platform matches:" >&2
             echo "$matched" | sed 's/^/  /' >&2
             return 1
@@ -108,23 +109,36 @@ auto_select_asset() {
         matched="$narrowed"
     fi
 
+    # Exclude checksum/signature files
+    matched=$(echo "$matched" | grep -vE '\.(sha256|sha512|sig|asc)$' || echo "$matched")
+
     # Count matches
     local count=$(echo "$matched" | wc -l | tr -d ' ')
 
     if [ "$count" -eq 1 ]; then
         echo "$matched"
         return 0
-    else
-        echo "Error: Multiple assets match platform ($count found):" >&2
-        echo "$matched" | sed 's/^/  /' >&2
-        echo "" >&2
-        if [ -z "$pattern" ]; then
-            echo "Use --pattern to narrow down (e.g., --pattern '*musl*' or --pattern '*.tar.gz')" >&2
-        else
-            echo "Pattern '$pattern' still matches multiple files. Be more specific." >&2
-        fi
-        return 1
     fi
+
+    # Multiple matches: prefer gnu over musl (more common on standard Linux)
+    if [ "$count" -gt 1 ]; then
+        local gnu_match=$(echo "$matched" | grep -i 'gnu' | head -n 1)
+        if [ -n "$gnu_match" ]; then
+            echo "$gnu_match"
+            return 0
+        fi
+    fi
+
+    # Still multiple matches, error out
+    echo "Error: Multiple assets match platform ($count found):" >&2
+    echo "$matched" | sed 's/^/  /' >&2
+    echo "" >&2
+    if [ -z "$FLAG_PATTERN" ]; then
+        echo "Use --pattern to narrow down (e.g., --pattern '*musl*' or --pattern '*.tar.gz')" >&2
+    else
+        echo "Pattern '$FLAG_PATTERN' still matches multiple files. Be more specific." >&2
+    fi
+    return 1
 }
 
 auto_select_binary() {
@@ -147,11 +161,11 @@ auto_select_binary() {
 }
 
 auto_select_name() {
-    local binary_path="$1"
-    local name_override="$2"
+    # Uses globals: FLAG_NAME
+    local binary_path="$1"  # Must be passed (computed at runtime)
 
-    if [ -n "$name_override" ]; then
-        echo "$name_override"
+    if [ -n "$FLAG_NAME" ]; then
+        echo "$FLAG_NAME"
     else
         basename "$binary_path"
     fi
