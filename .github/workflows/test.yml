@@ -1,22 +1,101 @@
 name: Test gh-install
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        tool:
+          # Basic tarball
+          - repo: orf/gping
+            verify: gping --version
+            desc: "simple tarball"
+
+          # Test --pattern flag (force musl variant)
+          - repo: BurntSushi/ripgrep
+            pattern: "*musl*"
+            verify: rg --version
+            desc: "pattern filter"
+
+          # Test --name flag
+          - repo: sharkdp/fd
+            name: fdfind
+            verify: fdfind --version
+            desc: "custom name"
+
+          # Test --version flag
+          - repo: sharkdp/bat
+            version: v0.24.0
+            verify: bat --version | grep "0.24.0"
+            desc: "pinned version"
+
+          # Simple binary (no gnu/musl variants)
+          - repo: junegunn/fzf
+            verify: fzf --version
+            desc: "simple binary"
+
+          # Multiple file types (.tar.gz + .sha256)
+          - repo: astral-sh/uv
+            verify: uv --version
+            desc: "uv package manager"
+
+          # Go binary
+          - repo: jesseduffield/lazygit
+            verify: lazygit --version
+            desc: "go binary"
+
+          # Rust binary
+          - repo: sharkdp/hyperfine
+            verify: hyperfine --version
+            desc: "rust binary"
+
+          # Nested archive structure
+          - repo: dandavison/delta
+            verify: delta --version
+            desc: "nested archive"
+
     runs-on: ${{ matrix.os }}
+    name: "${{ matrix.tool.desc }} (${{ matrix.os }})"
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install GitHub CLI (for act)
+        if: ${{ env.ACT }}
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+
       - name: Install extension locally
         run: gh extension install .
+
+      - name: "Test: ${{ matrix.tool.desc }}"
+        run: |
+          args="--auto"
+          [ -n "${{ matrix.tool.pattern }}" ] && args="$args --pattern '${{ matrix.tool.pattern }}'"
+          [ -n "${{ matrix.tool.name }}" ] && args="$args --name ${{ matrix.tool.name }}"
+          [ -n "${{ matrix.tool.version }}" ] && args="$args --version ${{ matrix.tool.version }}"
+
+          echo "Running: gh install ${{ matrix.tool.repo }} $args"
+          eval "gh install ${{ matrix.tool.repo }} $args"
+
+      - name: Verify installation
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ${{ matrix.tool.verify }}

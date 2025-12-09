@@ -3,38 +3,160 @@ set -eo pipefail
 
 TMP=$(mktemp -d gh-install.XXXXXX --tmpdir)
 BINPATH="${GH_BINPATH:-$HOME/.local/bin}"
-REPO=$1
 
-if [ -z $REPO ]; then
-    echo "usage: gh install user/repo"
+# Colors (only if terminal supports it)
+if [ -t 1 ] && [ -z "$NO_COLOR" ]; then
+    O='\033[38;5;208m'  # orange (actions)
+    D='\033[90m'         # dim/grey (auto-detected)
+    B='\033[1m'          # bold
+    G='\033[32m'         # green
+    M='\033[35m'         # magenta
+    R='\033[0m'          # reset
+else
+    O='' D='' B='' G='' M='' R=''
+fi
+
+log() {
+    echo -e "${D}$1${R}"
+}
+
+action() {
+    echo -e "${O}$1${R}"
+}
+
+# Flags
+AUTO_MODE=false
+FLAG_VERSION=""
+FLAG_PATTERN=""
+FLAG_NAME=""
+REPO=""
+
+show_help() {
+    cat << EOF
+usage: gh install <user/repo> [OPTIONS]
+
+Install GitHub CLI tools from releases with smart platform detection.
+
+OPTIONS:
+  -a, --auto                    Enable non-interactive mode with auto-detection
+  -v, --version <tag|latest>    Version to install (default: latest in auto mode)
+  -p, --pattern <glob>          Asset filename pattern (e.g., '*linux*', '*musl*')
+  -n, --name <name>             Binary name (default: auto-detect from filename)
+  -h, --help                    Show this help message
+
+ENVIRONMENT:
+  GH_BINPATH                    Installation directory (default: ~/.local/bin)
+
+EXAMPLES:
+  # Interactive mode (current behavior)
+  gh install cli/cli
+
+  # Auto-detect everything
+  gh install cli/cli --auto
+
+  # Auto-detect with specific version
+  gh install cli/cli --auto --version v2.40.0
+
+  # Auto-detect with pattern override (for musl vs gnu, etc)
+  gh install BurntSushi/ripgrep --auto --pattern '*musl*'
+
+  # Auto-detect with custom binary name
+  gh install sharkdp/fd --auto --name fdfind
+
+PLATFORM DETECTION:
+  Automatically detects OS (linux/darwin) and architecture (x86_64/arm64/etc)
+  Matches against common release patterns: linux_amd64, darwin_arm64, etc.
+
+EOF
+    exit 0
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|--auto)
+            AUTO_MODE=true
+            shift
+            ;;
+        -v|--version)
+            FLAG_VERSION="$2"
+            shift 2
+            ;;
+        -p|--pattern)
+            FLAG_PATTERN="$2"
+            shift 2
+            ;;
+        -n|--name)
+            FLAG_NAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            echo "Run 'gh install --help' for usage"
+            exit 1
+            ;;
+        *)
+            if [ -z "$REPO" ]; then
+                REPO="$1"
+            else
+                echo "Error: Too many arguments"
+                echo "Run 'gh install --help' for usage"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$REPO" ]; then
+    echo "usage: gh install <user/repo> [OPTIONS]"
+    echo "Run 'gh install --help' for more information"
     exit 1
 fi
 
-choose () {
-    if command -v fzf 2>&1> /dev/null; then
-        echo $@ | xargs -n 1 | fzf --height 10 --prompt "$PS3" -1
+# Normalize repo: strip GitHub URL prefix if present
+REPO="${REPO#https://github.com/}"
+REPO="${REPO#http://github.com/}"
+REPO="${REPO#github.com/}"
+REPO="${REPO%.git}"
+
+# Auto-enable auto mode if not a tty (piped/scripted)
+if [ ! -t 0 ] && [ "$AUTO_MODE" = false ]; then
+    AUTO_MODE=true
+    log "[auto-detected mode] non-interactive (stdin is not a tty)"
+fi
+
+choose() {
+    if [ "$AUTO_MODE" = true ]; then
+        # Auto mode: return first item (we expect exactly one from filtering)
+        echo "$@" | xargs -n 1 | head -n 1
+    elif command -v fzf 2>&1> /dev/null; then
+        echo "$@" | xargs -n 1 | fzf --height 10 --prompt "$PS3" -1
     else
-        select opt in $@; do break; done
-        echo $opt
+        select opt in "$@"; do break; done
+        echo "$opt"
     fi
 }
 
-extract () {
-    for arg in $@ ; do
-        if [ -f $arg ] ; then
-            case $arg in
-                *.tar.bz2)  tar xjf $arg      ;;
-                *.tar.gz)   tar xzf $arg      ;;
-                *.tar.xz)   tar xf $arg       ;;
-                *.tar.zst)  tar xf $arg       ;;
-                *.bz2)      bunzip2 $arg      ;;
-                *.gz)       gunzip $arg       ;;
-                *.tar)      tar xf $arg       ;;
-                *.tbz2)     tar xjf $arg      ;;
-                *.tgz)      tar xzf $arg      ;;
-                *.zip)      unzip $arg        ;;
-                *.Z)        uncompress $arg   ;;
-                *.rar)      rar x $arg        ;;  # 'rar' must to be installed
+extract() {
+    for arg in "$@"; do
+        if [ -f "$arg" ]; then
+            case "$arg" in
+                *.tar.bz2)  tar xjf "$arg"      ;;
+                *.tar.gz)   tar xzf "$arg"      ;;
+                *.tar.xz)   tar xf "$arg"       ;;
+                *.tar.zst)  tar xf "$arg"       ;;
+                *.bz2)      bunzip2 "$arg"      ;;
+                *.gz)       gunzip "$arg"       ;;
+                *.tar)      tar xf "$arg"       ;;
+                *.tbz2)     tar xjf "$arg"      ;;
+                *.tgz)      tar xzf "$arg"      ;;
+                *.zip)      unzip -q "$arg"     ;;
+                *.Z)        uncompress "$arg"   ;;
+                *.rar)      rar x "$arg"        ;;
                 *)          echo "'$arg' cannot be extracted, assuming it's binary" && return 1;;
             esac
         else
@@ -44,49 +166,129 @@ extract () {
     return 0
 }
 
-cleanup () {
-    rm -rf $TMP
+cleanup() {
+    rm -rf "$TMP"
 }
 
 trap cleanup EXIT
 
-PS3="> Select version: "
-tag=$(choose `gh api "repos/$REPO/releases" -q ".[].tag_name"`)
-echo "[version] $tag"
+# Load auto-mode helpers if needed
+if [ "$AUTO_MODE" = true ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PS3="> Select file: "
-filename=$(choose `gh api "repos/$REPO/releases" -q '.[] | select(.tag_name == "'$tag'") | .assets[].name'`)
-echo "[filename] $filename"
+    if [ -f "$SCRIPT_DIR/gh-install-lib.sh" ]; then
+        source "$SCRIPT_DIR/gh-install-lib.sh"
+    else
+        echo "Error: Could not find gh-install-lib.sh" >&2
+        echo "Auto mode requires gh-install-lib.sh in the same directory" >&2
+        exit 1
+    fi
 
-echo "[*] Downloading... $filename"
-gh release download $tag --repo "$REPO" --pattern "$filename" --dir "$TMP"
+    detect_platform
+    log "[auto-detected platform] ${B}$OS_NAME $ARCH_NAME${R}"
+fi
+
+# Step 1: Select version
+if [ "$AUTO_MODE" = true ]; then
+    tag=$(auto_select_version)
+    if [ -n "$FLAG_VERSION" ]; then
+        log "[using version] ${B}$tag${R} ${M}(from --version)${R}"
+    else
+        log "[auto-detected version] ${B}$tag${R} ${G}(latest)${R}"
+    fi
+else
+    PS3="> Select version: "
+    tag=$(choose $(gh api "repos/$REPO/releases" -q ".[].tag_name"))
+    echo "[version] $tag"
+fi
+
+# Step 2: Select file/asset
+all_assets=$(gh api "repos/$REPO/releases" -q ".[] | select(.tag_name == \"$tag\") | .assets[].name")
+
+if [ "$AUTO_MODE" = true ]; then
+    # Auto-detect based on platform (with optional pattern to narrow down)
+    filename=$(auto_select_asset "$all_assets")
+
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    if [ -n "$FLAG_PATTERN" ]; then
+        log "[auto-detected asset] ${B}$filename${R} ${M}(pattern: $FLAG_PATTERN)${R}"
+    else
+        log "[auto-detected asset] ${B}$filename${R}"
+    fi
+elif [ -n "$FLAG_PATTERN" ]; then
+    # Non-auto mode with explicit pattern
+    # Convert glob pattern to grep pattern (* -> .*, ? -> .)
+    grep_pattern=$(echo "$FLAG_PATTERN" | sed 's/\*/.*/g' | sed 's/?/./g')
+    filename=$(echo "$all_assets" | grep -E "$grep_pattern" | head -n 1)
+
+    if [ -z "$filename" ]; then
+        echo "Error: No assets match pattern: $FLAG_PATTERN" >&2
+        echo "Available assets:" >&2
+        echo "$all_assets" | sed 's/^/  /' >&2
+        exit 1
+    fi
+
+    echo "[filename] $filename (matched pattern: $FLAG_PATTERN)"
+else
+    # Interactive
+    PS3="> Select file: "
+    filename=$(choose $(echo "$all_assets"))
+    echo "[filename] $filename"
+fi
+
+# Step 3: Download
+action "downloading ${B}$filename${R}"
+gh release download "$tag" --repo "$REPO" --pattern "$filename" --dir "$TMP"
 
 (
-    cd $TMP
+    cd "$TMP"
 
-    if [[ $filename == *.deb ]]; then
-        echo "[*] Installing debian package..."
-        sudo apt install ./$filename
+    # Handle debian packages
+    if [[ "$filename" == *.deb ]]; then
+        action "installing debian package ${B}$filename${R}"
+        sudo apt install "./$filename"
         exit 0
     fi
 
-    echo "[*] Extracting..."
+    action "extracting..."
 
-    if extract $filename; then
-        PS3="> Select binary: "
-        bin=$(choose `find * -type f -not -path "*$filename"`)
+    # Step 4: Extract and select binary
+    if extract "$filename"; then
+        if [ "$AUTO_MODE" = true ]; then
+            bin=$(auto_select_binary "$filename")
+            if [ $? -ne 0 ]; then
+                exit 1
+            fi
+            log "[auto-detected binary] ${B}$bin${R}"
+        else
+            PS3="> Select binary: "
+            bin=$(choose $(find . -type f -not -path "*$filename"))
+        fi
     else
-        bin=$filename
+        bin="$filename"
     fi
 
-    # install
+    # Step 5: Install
     basename=$(basename "$bin")
-    read -p "> Choose a name (empty to leave: $basename): " name
+
+    if [ "$AUTO_MODE" = true ]; then
+        name=$(auto_select_name "$bin")
+        if [ -n "$FLAG_NAME" ]; then
+            log "[using name] ${B}$name${R} ${M}(from --name)${R}"
+        else
+            log "[auto-detected name] ${B}$name${R}"
+        fi
+    else
+        read -p "> Choose a name (empty to leave: $basename): " name
+    fi
+
     mkdir -p "$BINPATH"
     target="$BINPATH/${name:-$basename}"
     mv "$bin" "$target"
     chmod +x "$target"
 
-    echo "Success!"
-    echo "Saved in: $target"
+    echo -e "${G}installed ${B}$target${R}"
 )
